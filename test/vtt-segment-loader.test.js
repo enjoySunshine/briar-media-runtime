@@ -1031,6 +1031,34 @@ QUnit.module('VTTSegmentLoader', function(hooks) {
       assert.equal(mockSegmentInfo.cues[0].endTime, 3, 'startTime is correct value');
     });
 
+    QUnit.test('parseMp4VttCues_ uses the video offset for fmp4 embedded subtitles', function(assert) {
+      // fmp4 segment whose media time starts at 11 is appended with a -11
+      // timestamp offset on both video and audio buffers. A cue embedded at
+      // media time 0 -> 1 must therefore land at playback time -11 -> -10,
+      // using the video offset (segment playlist start/end stay 0 -> 10).
+      const mockSegmentInfo = {
+        mp4VttCues: [{
+          start: 0,
+          end: 1,
+          cueText: 'embedded.cue',
+          settings: ''
+        }],
+        cues: []
+      };
+
+      loader.sourceUpdater_.videoTimestampOffset = () => {
+        return -11;
+      };
+      loader.sourceUpdater_.audioTimestampOffset = () => {
+        return -11;
+      };
+      loader.parseMp4VttCues_(mockSegmentInfo);
+
+      assert.equal(mockSegmentInfo.cues.length, 1, 'one cue is parsed');
+      assert.equal(mockSegmentInfo.cues[0].startTime, -11, 'cue start lands at -11 using the video offset');
+      assert.equal(mockSegmentInfo.cues[0].endTime, -10, 'cue end lands at -10 using the video offset');
+    });
+
     QUnit.test('handleData_ passes fmp4 vtt segment data to parent loader', function(assert) {
       const done = assert.async();
       const mockSimpleSegment = {

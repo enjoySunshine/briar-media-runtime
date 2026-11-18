@@ -266,6 +266,20 @@ export class MediaSequenceSync {
   }
 }
 
+/**
+ * Dependant media (alternate audio and subtitles) must always follow the main
+ * media's placement on the timeline. A dependant sync keeps its own segment
+ * level storage (segment references, part info and appended status all belong
+ * to its own playlist), but it never defines its own place on the timeline:
+ * the base time of every playlist update is anchored to the main sync.
+ *
+ * Without this, each loader derives the live window start independently, so
+ * when the window slides (a segment expires from the playlist), the main
+ * loader's window moves while the audio and VTT loaders can remain on the old
+ * base time. Anchoring the base time to the main sync guarantees that all
+ * three loaders see the same window start/end and map a playback time to the
+ * same position within the window.
+ */
 export class DependantMediaSequenceSync extends MediaSequenceSync {
   constructor(parent) {
     super();
@@ -274,16 +288,27 @@ export class DependantMediaSequenceSync extends MediaSequenceSync {
   }
 
   calculateBaseTime_(mediaSequence, segments, fallback) {
-    if (!this.storage_.size) {
-      const info = this.parent_.getSyncInfoForMediaSequence(mediaSequence);
+    // Prefer the main sync's start for the same media sequence. This is the
+    // normal flow: main and dependant playlists refresh together and carry the
+    // same media sequences.
+    const parentInfo = this.parent_.getSyncInfoForMediaSequence(mediaSequence);
 
-      if (info) {
-        return info.segmentSyncInfo.start;
-      }
-
-      return 0;
+    if (parentInfo) {
+      return parentInfo.segmentSyncInfo.start;
     }
 
+    // The main sync has not recorded this media sequence (for example, the
+    // dependant playlist refreshed first, or carries media sequences outside
+    // the main playlist's current window). A dependant loader must never derive
+    // its place on the timeline from its own storage or the current playback
+    // time: doing so lets it drift from main when the window slides. Hold the
+    // main window's start instead so all three loaders share one anchor.
+    if (isFinite(this.parent_.start)) {
+      return this.parent_.start;
+    }
+
+    // Main has not established a window yet, fall back to the base behavior
+    // (which resolves to time 0 for the first playlist update).
     return super.calculateBaseTime_(mediaSequence, segments, fallback);
   }
 }
